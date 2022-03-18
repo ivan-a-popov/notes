@@ -1,6 +1,7 @@
+from typing import List
 from fastapi import FastAPI, WebSocket
 from fastapi.responses import HTMLResponse
-
+from starlette.websockets import WebSocketDisconnect
 
 app = FastAPI()
 
@@ -44,18 +45,40 @@ html = """
 """
 
 
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: List[WebSocket] = []
+        self.number = 0
+
+    async def connect(self, websocket: WebSocket):
+        # self.number = 0
+        await websocket.accept()
+        self.active_connections.append(websocket)
+
+    def disconnect(self, websocket: WebSocket):
+        self.active_connections.remove(websocket)
+
+    async def send_message(self, message: dict, websocket: WebSocket):
+        await websocket.send_json(message)
+
+
+manager = ConnectionManager()
+
+
 @app.get("/")
 async def get():
-    global n
-    n = 0
+
     return HTMLResponse(html)
 
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    await websocket.accept()
-    while True:
-        data = await websocket.receive_json()
-        global n
-        n += 1
-        await websocket.send_json({"number": n, "text": data["message"]})
+    await manager.connect(websocket)
+    n = 0
+    try:
+        while True:
+            data = await websocket.receive_json()
+            n += 1
+            await manager.send_message({"number": n, "text": data["message"]}, websocket)
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
